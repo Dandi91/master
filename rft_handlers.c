@@ -1,5 +1,6 @@
 #include "rft_handlers.h"
 #include "init.h"
+#include "flash_structures.h"
 
 // Number of samples
 #define TIME_PERIODS_COUNT 3
@@ -30,6 +31,15 @@
 #define TRMS_TO_OFST    0x00
 #define TRMS_CMD_OFST   0x01
 #define TRMS_DATA_OFST  0x02
+
+typedef struct
+{
+  uint16_t adc[8];
+  uint32_t inputs;
+} slave_state_type_def;
+
+// Current system state
+slave_state_type_def system_state[MAX_DEVICES];
 
 // Work packet
 uint8_t packet[MAX_PACKET_LOAD + PROTO_BYTES_CNT];

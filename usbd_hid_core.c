@@ -226,11 +226,20 @@ __ALIGN_BEGIN static uint8_t HID_ReportDesc[HID_REPORT_DESC_SIZE] __ALIGN_END =
 
 /* 14 */
 
-  0x85, REPORT_MEMORY,           //   REPORT_ID (2)
+  0x85, REPORT_MEMORY,           //   REPORT_ID (1)
   0x95, BCKP_STRUCT_LENGTH,      //   REPORT_COUNT (18)
   0x09, 0x00,                    //   USAGE (Undefined)
   0xb2, 0x02, 0x01,              //   FEATURE (Data,Var,Abs,Buf)
 
+/* 23 */
+
+  0x85, REPORT_WIRES,            //   REPORT_ID (2)
+  0x95, WIRE_STRUCT_LENGTH,      //   REPORT_COUNT (4)
+  0x09, 0x00,                    //   USAGE (Undefined)
+  0xb2, 0x02, 0x01,              //   FEATURE (Data,Var,Abs,Buf)
+  
+/* 32 */
+  
   0xc0                           // END_COLLECTION
 };
 
