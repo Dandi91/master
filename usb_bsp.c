@@ -106,7 +106,7 @@ void USB_OTG_BSP_Init(USB_OTG_CORE_HANDLE *pdev)
   GPIO_PinAFConfig(GPIOA,GPIO_PinSource12,GPIO_AF_14);
 
   RCC_APB2PeriphClockCmd(RCC_APB2Periph_SYSCFG,ENABLE);
-  RCC_USBCLKConfig(RCC_USBCLKSource_PLLCLK_Div1);
+  RCC_USBCLKConfig(RCC_USBCLKSource_PLLCLK_1Div5);
   RCC_APB1PeriphClockCmd(RCC_APB1Periph_USB,ENABLE);
 
   /* enable the PWR clock */
