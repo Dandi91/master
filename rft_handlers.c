@@ -274,10 +274,57 @@ void DisassembleTransmitEcho(net_typedef *array, uint32_t length)
   }
 }
 
+void GetPathTo(net_typedef *net, uint32_t net_length, uint8_t *packet, uint16_t needed_idx, uint32_t load_length)
+{
+  uint8_t from;
+  int32_t i;
+  uint8_t chain[MAX_DEVICES], count;
+  
+  from = net[needed_idx].from;
+  chain[0] = needed_idx;
+  count = 1;
+  i = needed_idx;
+  while ((i > 0) || (from != address))
+  {
+    // Go from needed element up
+    i--;
+    if (net[i].to == from)
+    {
+      chain[count] = i;
+      count++;
+      from = net[i].from;
+    }
+  }
+  // Now chain has all indexes of connectors between master and needed slave
+  // Start forming transmission packet
+  packet[PCKT_TO_OFST] = net[chain[count - 1]].to;
+  packet[PCKT_FROM_OFST] = address;
+  packet[PCKT_CMD_OFST] = PACKET_TYPE_TRSMT;
+  curr_pack_pos = &packet[PCKT_DATA_OFST];
+  if (count > 1)
+    for (i = count - 2; i > -1; i--)
+    {
+      *curr_pack_pos++ = 1; // Re-transmit - only one included packet
+      MakeTransPacket(load_length + (5 * i),net[chain[i]].to,PACKET_TYPE_TRSMT);
+    }
+}
+
+uint8_t CountUnconnected(net_typedef *array, uint32_t length)
+{
+  uint32_t i;
+  uint8_t result = 0;
+
+  for (i = 0; i < length; i++)
+    if (array[i].from == 0xFF)
+      result++;
+
+  return result;
+}
+
 void BuildTopology(void)
 {
   uint32_t i, j;
-  uint8_t curr_address, direct_connect_count = 0, first_not_connected;
+  uint8_t curr_address, direct_connect_count = 0, asked;
   net_typedef new_topology[MAX_DEVICES];
 
   is_topology_construct = 1;
@@ -312,21 +359,17 @@ void BuildTopology(void)
   }
   SortArray(new_topology,dev_count);
   // Test each direct connected slave to be a transmitter
-  for (i = 0; i < direct_connect_count; i++)
+  i = 0;
+  while (i < dev_count)
   {
-    curr_address = new_topology[i].to;
-    MakePacket(curr_address,address,PACKET_TYPE_TRSMT);
-    curr_pack_pos = &packet[PCKT_DATA_OFST];
-    // Find first not connected device
-    first_not_connected = direct_connect_count;
-    while (new_topology[first_not_connected].from != 0xFF)
-      first_not_connected++;
-    *curr_pack_pos++ = dev_count - first_not_connected; // Length
-    for (j = first_not_connected; j < dev_count; j++)
-    {
-      // Form trasmit packet with j-devices
-      MakeTransPacket(0,new_topology[j].to,PACKET_TYPE_ECHO);
-    }
+    asked = CountUnconnected(new_topology,dev_count);
+    if (asked == 0)
+      break;
+    GetPathTo(new_topology,dev_count,packet,i++,4*asked + 1);  // Search path to needed transmitter
+    j = dev_count - asked;
+    *curr_pack_pos++ = asked;
+    while (j < dev_count)
+      MakeTransPacket(0,new_topology[j++].to,PACKET_TYPE_ECHO);
     // Send packet to i-device
     topology_answer = TOP_ANS_WAIT;
     SPI_RFT_Write_Packet(packet,curr_pack_pos - packet);
@@ -354,6 +397,9 @@ void BuildTopology(void)
       }
     }
   }
+  // Write new topology to FLASH
+  for (i = 0; i < dev_count; i++)
+    set_topology(new_topology[i],i);
 }
 
 void TIM7_IRQHandler(void)
