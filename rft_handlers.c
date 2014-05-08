@@ -238,11 +238,47 @@ void SortArray(net_typedef* array, uint32_t length)
   }
 }
 
-void BuildTopology(void)
+uint8_t FindTopology(net_typedef *array, uint32_t length, uint8_t address)
 {
   uint32_t i;
-  uint8_t curr_address;
-  net_typedef new_topology[dev_count];
+
+  for (i = 0; i < length; i++)
+  {
+    if (array[i].to == address)
+      return i;
+  }
+  return 0xFF;
+}
+
+void DisassembleTransmitEcho(net_typedef *array, uint32_t length)
+{
+  uint32_t i, count;
+  uint8_t current_address, current_idx;
+  net_typedef new_top;
+
+  curr_transmt_pos = &packet[PCKT_DATA_OFST];
+  count = *curr_transmt_pos++;
+  for (i = 0; i < count; i++)
+  {
+    curr_transmt_pos += DATA_LENGTH;
+    current_address = *(curr_transmt_pos + TRMS_TO_OFST);
+    current_idx = FindTopology(array,length,current_address);
+    if (*(curr_transmt_pos + TRMS_CMD_OFST) == PACKET_TYPE_ECHO)
+    {
+      // Catch!
+      new_top.from = packet[PCKT_FROM_OFST];
+      new_top.to = current_address;
+      array[current_idx] = new_top;
+    }
+    curr_transmt_pos += TRMS_DATA_OFST;
+  }
+}
+
+void BuildTopology(void)
+{
+  uint32_t i, j;
+  uint8_t curr_address, direct_connect_count = 0, first_not_connected;
+  net_typedef new_topology[MAX_DEVICES];
 
   is_topology_construct = 1;
   for (i = 0; i < dev_count; i++)
@@ -261,6 +297,7 @@ void BuildTopology(void)
       case TOP_ANS_OK:
       {
         new_topology[i].from = DEFAULT_MASTER_ADDRESS;
+        direct_connect_count++;
         break;
       }
       case TOP_ANS_TIMEOUT:
@@ -274,7 +311,49 @@ void BuildTopology(void)
     }
   }
   SortArray(new_topology,dev_count);
-  // Something else recursive
+  // Test each direct connected slave to be a transmitter
+  for (i = 0; i < direct_connect_count; i++)
+  {
+    curr_address = new_topology[i].to;
+    MakePacket(curr_address,address,PACKET_TYPE_TRSMT);
+    curr_pack_pos = &packet[PCKT_DATA_OFST];
+    // Find first not connected device
+    first_not_connected = direct_connect_count;
+    while (new_topology[first_not_connected].from != 0xFF)
+      first_not_connected++;
+    *curr_pack_pos++ = dev_count - first_not_connected; // Length
+    for (j = first_not_connected; j < dev_count; j++)
+    {
+      // Form trasmit packet with j-devices
+      MakeTransPacket(0,new_topology[j].to,PACKET_TYPE_ECHO);
+    }
+    // Send packet to i-device
+    topology_answer = TOP_ANS_WAIT;
+    SPI_RFT_Write_Packet(packet,curr_pack_pos - packet);
+    StartTimeoutTimer();
+    // Wait
+    while (topology_answer == TOP_ANS_WAIT);
+    // Check result
+    switch (topology_answer)
+    {
+      case TOP_ANS_OK:
+      {
+        DisassembleTransmitEcho(new_topology,dev_count);    // Modify array
+        SortArray(new_topology,dev_count);                  // Sort array again
+        break;
+      }
+      case TOP_ANS_TIMEOUT:
+      {
+        // Oh... Something gone wrong!
+        // Slave is not responding now
+        break;
+      }
+      case TOP_ANS_WAIT:
+      {
+        while (1); // KERNEL PANIC!
+      }
+    }
+  }
 }
 
 void TIM7_IRQHandler(void)
@@ -352,6 +431,12 @@ void RX_Complete(void)
       }
       case PACKET_TYPE_TRSMT:    // Incapsulated packets
       {
+        if (is_topology_construct)
+        {
+          // Returned echo from a transmitter
+          topology_answer = TOP_ANS_OK;
+          break;
+        }
         if (!is_transmit)    // First request
         {
           current_transmission_from = sender;
