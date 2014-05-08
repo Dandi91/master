@@ -36,10 +36,19 @@ typedef struct
 {
   uint16_t adc[8];
   uint32_t inputs;
-} slave_state_type_def;
+} slave_state_typedef;
+
+typedef enum
+{
+  TOP_ANS_WAIT = 0,
+  TOP_ANS_OK,
+  TOP_ANS_TIMEOUT
+} topology_answer_typedef;
+
+topology_answer_typedef topology_answer = TOP_ANS_WAIT;
 
 // Current system state
-slave_state_type_def system_state[MAX_DEVICES];
+slave_state_typedef system_state[MAX_DEVICES];
 
 // Work packet
 uint8_t packet[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
@@ -48,7 +57,8 @@ uint8_t in_trans[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
 // Out-going transmission
 uint8_t out_trans[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
 data_len_t packet_length;
-uint8_t address;
+uint8_t address, dev_count;
+uint8_t is_topology_construct = 0;
 
 uint8_t current_transmission_from, current_transmission_to, is_transmit = 0;
 uint8_t transmt_count, transmt_index;
@@ -75,6 +85,19 @@ void EXTI15_10_IRQHandler(void)
     EXTI_ClearITPendingBit(EXTI_Line15);
     SPI_RFT_IRO_IRQHandler();
   }
+}
+
+void StartTimeoutTimer(void)
+{
+  TIM_ITConfig(TIM7,TIM_IT_Update,DISABLE);
+  TIM_GenerateEvent(TIM7,TIM_EventSource_Update);
+  TIM_Cmd(TIM7,ENABLE);
+  TIM_ITConfig(TIM7,TIM_IT_Update,ENABLE);
+}
+
+void StopTimeoutTimer(void)
+{
+  TIM_Cmd(TIM7,DISABLE);
 }
 
 void TX_Complete(void)
@@ -180,10 +203,78 @@ void TransmitNextFromBuffer(void)
   SPI_RFT_Write_Packet(packet,curr_length + PROTO_BYTES_CNT);
 
   // Start timeout timer
-  TIM_ITConfig(TIM7,TIM_IT_Update,DISABLE);
-  TIM_GenerateEvent(TIM7,TIM_EventSource_Update);
-  TIM_Cmd(TIM7,ENABLE);
-  TIM_ITConfig(TIM7,TIM_IT_Update,ENABLE);
+  StartTimeoutTimer();
+}
+
+uint32_t FindMin(net_typedef* array, uint32_t start, uint32_t end)
+{
+  uint32_t i, result;
+  net_typedef min_item;
+
+  min_item = array[start];
+  result = start;
+  for (i = start + 1; i < end + 1; i++)
+  {
+    if (min_item.from > array[i].from)
+    {
+      min_item = array[i];
+      result = i;
+    }
+  }
+  return result;
+}
+
+void SortArray(net_typedef* array, uint32_t length)
+{
+  net_typedef buf;
+  uint32_t i, min;
+
+  for (i = 0; i < length; i++)
+  {
+    min = FindMin(array,i,length - 1);
+    buf = array[i];
+    array[i] = array[min];
+    array[min] = buf;
+  }
+}
+
+void BuildTopology(void)
+{
+  uint32_t i;
+  uint8_t curr_address;
+  net_typedef new_topology[dev_count];
+
+  is_topology_construct = 1;
+  for (i = 0; i < dev_count; i++)
+  {
+    curr_address = i + 0x02;
+    new_topology[i].to = curr_address;
+    topology_answer = TOP_ANS_WAIT;
+    // Send packet
+    MakePacket(curr_address,address,PACKET_TYPE_ECHO);
+    SPI_RFT_Write_Packet(packet,PROTO_BYTES_CNT);
+    StartTimeoutTimer();
+    // Wait for answer
+    while (topology_answer == TOP_ANS_WAIT);
+    switch (topology_answer)
+    {
+      case TOP_ANS_OK:
+      {
+        new_topology[i].from = DEFAULT_MASTER_ADDRESS;
+        break;
+      }
+      case TOP_ANS_TIMEOUT:
+      {
+        new_topology[i].from = 0xFF;
+        break;
+      }
+      case TOP_ANS_WAIT:
+        // KERNEL PANIC!
+        while(1);
+    }
+  }
+  SortArray(new_topology,dev_count);
+  // Something else recursive
 }
 
 void TIM7_IRQHandler(void)
@@ -191,9 +282,16 @@ void TIM7_IRQHandler(void)
   if (TIM_GetFlagStatus(TIM7,TIM_FLAG_Update) == SET)
   {
     TIM_ClearFlag(TIM7,TIM_FLAG_Update);
-    TIM_Cmd(TIM7,DISABLE);
-    MakeTransPacket(0,current_transmission_to,PACKET_TYPE_TIMEOUT);
-    TransmitNextFromBuffer();
+    StopTimeoutTimer();
+    if (is_transmit)
+    {
+      MakeTransPacket(0,current_transmission_to,PACKET_TYPE_TIMEOUT);
+      TransmitNextFromBuffer();
+    }
+    if (is_topology_construct)
+    {
+      topology_answer = TOP_ANS_TIMEOUT;
+    }
   }
 }
 
@@ -237,6 +335,12 @@ void RX_Complete(void)
     }
     switch (packet[PCKT_CMD_OFST])
     {
+      case PACKET_TYPE_ECHO:
+      {
+        if (is_topology_construct)
+          topology_answer = TOP_ANS_OK;
+        break;
+      }
       case PACKET_TYPE_REQ:  // output data
       {
         SetOutputs((uint16_t*)(packet + PCKT_DATA_OFST));
@@ -271,6 +375,7 @@ void RX_Complete(void)
 
 uint8_t* RX_Begin(data_len_t length)
 {
+  StopTimeoutTimer();
   packet_length = length;
   if ((length < PROTO_BYTES_CNT) || (length > sizeof(packet)))
     return NULL;

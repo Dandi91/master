@@ -15,17 +15,23 @@ typedef struct
   uint8_t out_number;
   uint8_t in_addr;
   uint8_t in_number;
-} conn_type_def;
+} conn_typedef;
 
 typedef struct
 {
   uint8_t from;
   uint8_t to;
-} net_type_def;
+} net_typedef;
 
+// Tables addresses
 uint32_t* get_connections_table_address(void);
 uint32_t* get_topology_table_address(void);
-conn_type_def get_connection(uint32_t index);
-net_type_def get_topology(uint32_t index);
+
+// Connections
+conn_typedef get_connection(uint32_t index);
+
+// Topology items
+net_typedef get_topology(uint32_t index);
+void set_topology(net_typedef value, uint32_t index);
 
 #endif
