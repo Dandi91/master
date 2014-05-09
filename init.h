@@ -11,8 +11,7 @@
 #include "adc.h"
 
 #define RTC_ADDR_FLAGS  (RTC_BASE + 0x50 + 0)
-#define RTC_ADDR_SLADR  (RTC_BASE + 0x50 + 1)
-#define RTC_ADDR_AESKEY (RTC_BASE + 0x50 + 2)
+#define RTC_ADDR_AESKEY (RTC_BASE + 0x50 + 1)
 
 typedef union
 {

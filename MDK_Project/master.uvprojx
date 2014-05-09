@@ -424,6 +424,11 @@
               <FileType>1</FileType>
               <FilePath>..\flash_structures.c</FilePath>
             </File>
+            <File>
+              <FileName>topology.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\topology.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

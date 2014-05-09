@@ -125,7 +125,6 @@ void Initialization(uint8_t is_config)
     /* Normal work */
     // Reading backuped configuration
     PeripheralParams.d8 = *(uint8_t*)RTC_ADDR_FLAGS;
-    Set_Address(*(uint8_t*)RTC_ADDR_SLADR);
     Initialize_AES_Key((uint8_t*)RTC_ADDR_AESKEY);
 
     // Configuring interfaces

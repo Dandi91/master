@@ -65,7 +65,7 @@
 #define REPORT_MEMORY                 REPORT_BASE
 #define REPORT_WIRES                  (REPORT_BASE + 0x01)
 
-#define BCKP_STRUCT_LENGTH            18
+#define BCKP_STRUCT_LENGTH            17
 #define WIRE_STRUCT_LENGTH            4
 /**
   * @}

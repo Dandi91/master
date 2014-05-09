@@ -6,7 +6,6 @@
 
 /* Backup structure:
   uint8_t       Flags
-  uint8_t       Slave Address
   uint8_t [16]  AES Key
 */
 
