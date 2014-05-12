@@ -25,7 +25,7 @@ typedef struct
 
 // Tables addresses
 uint32_t* get_connections_table_address(void);
-uint32_t* get_topology_table_address(void);
+const net_typedef* get_topology_table_address(void);
 
 // Connections
 conn_typedef get_connection(uint32_t index);

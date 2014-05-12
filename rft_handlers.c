@@ -2,6 +2,7 @@
 #include "init.h"
 #include "flash_structures.h"
 #include "topology.h"
+#include "periph.h"
 
 // Number of samples
 #define TIME_PERIODS_COUNT 3
@@ -9,15 +10,6 @@
 #define TIMER_SHIFTING_VALUE (float)1.000024414658561
 // Additional number of cycles for startup
 #define WARM_UP_TIME 10
-
-typedef struct
-{
-  uint16_t adc[8];
-  uint32_t inputs;
-} slave_state_typedef;
-
-// Current system state
-slave_state_typedef system_state[MAX_DEVICES];
 
 // Work packet
 uint8_t packet[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
@@ -32,6 +24,8 @@ uint8_t is_topology_construct = 0;
 uint8_t current_transmission_from, current_transmission_to, is_transmit = 0;
 uint8_t transmt_count, transmt_index;
 uint8_t *curr_transmt_pos, *curr_pack_pos;
+
+const net_typedef *net;
 
 void CopyBuffer(uint8_t *source, uint8_t *dest, uint32_t length)
 {
@@ -124,6 +118,102 @@ void SendPacket(uint8_t *array, data_len_t length)
 {
   SPI_RFT_Write_Packet(array,length);
   StartTimeoutTimer();
+}
+
+void DisassemblePacket(uint8_t *packet)
+{
+  
+}
+
+uint8_t CheckTransmitter(uint8_t root_idx)
+{
+  uint8_t i;
+
+  for (i = root_idx + 1; i < dev_count; i++)
+  {
+    if (net[i].from == net[root_idx].to)
+      return 1;
+  }
+  return 0;
+}
+
+data_len_t BuildRequest(uint8_t *packet, uint8_t target_idx)
+{
+  uint8_t i, sub_count;
+  data_len_t len, sub_len, *p_len;
+  uint8_t *p;
+
+  // Build request for itself
+  sub_count = 1;                      // First sub-packet
+  len = 1;                            // One byte for sub-packets count
+  p_len = (data_len_t*)&packet[1];    // Pointer to current sub-packet's data length
+  p = MakeTransPacket(&packet[1],0,net[target_idx].to,PACKET_TYPE_REQ);
+  sub_len = GetOutputsFor(net[target_idx].to,p);
+  *p_len = sub_len;                   // Write data length
+  p += sub_len;                       // Move pointer foward
+  len += sub_len + TRMS_PROTO_CNT;    // Count result length
+  // Build transmissions
+  for (i = target_idx + 1; i < dev_count; i++)
+  {
+    if (net[i].from == net[target_idx].to)
+    {
+      sub_count++;
+      if (CheckTransmitter(i))
+      {
+        // If slave is a transmitter
+        p_len = (data_len_t*)p;
+        p = MakeTransPacket(p,0,net[i].to,PACKET_TYPE_TRSMT);
+        sub_len = BuildRequest(p,i);
+        *p_len = sub_len;
+        p += sub_len;
+        len += sub_len + TRMS_PROTO_CNT;
+      }
+      else
+      {
+        // If slave isn't a transmitter - make simple request packet
+        p_len = (data_len_t*)p;           // Pointer to current sub-packet's data length
+        p = MakeTransPacket(p,0,net[i].to,PACKET_TYPE_REQ);
+        sub_len = GetOutputsFor(net[i].to,p);
+        *p_len = sub_len;                 // Write data length
+        p += sub_len;                     // Move pointer foward
+        len += sub_len + TRMS_PROTO_CNT;  // Count result length
+      }
+    }
+  }
+  packet[0] = sub_count;
+  return len;
+}
+
+void SystemPoll(void)
+{
+  uint8_t i = 0;
+  data_len_t len;
+
+  UpdateMasterPeripherals();
+  net = get_topology_table_address();
+  while (net[i].from == DEFAULT_MASTER_ADDRESS)
+  {
+    // Cycle until first non-direct connection is reached
+    packet[PCKT_TO_OFST] = net[i].to;
+    packet[PCKT_FROM_OFST] = DEFAULT_MASTER_ADDRESS;
+    if (CheckTransmitter(i))
+    {
+      // If net[i] is a transmitter
+      packet[PCKT_CMD_OFST] = PACKET_TYPE_TRSMT;
+      len = BuildRequest(&packet[PCKT_DATA_OFST],i);
+    }
+    else
+    {
+      // If net[i] is not a transmitter
+      packet[PCKT_CMD_OFST] = PACKET_TYPE_REQ;
+      len = GetOutputsFor(net[i].to,&packet[PCKT_DATA_OFST]);
+    }
+    SendPacket(packet,len + PROTO_BYTES_CNT);
+    // Wait for result
+    // while (1);
+    // Retrieve result from packet
+    DisassemblePacket(packet);
+  }
 }
 
 void HandlePacket(uint8_t *h_packet)

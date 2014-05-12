@@ -30,6 +30,7 @@
 #define PCKT_CMD_OFST   0x02
 #define PCKT_DATA_OFST  0x03
 
+#define TRMS_PROTO_CNT  (DATA_LENGTH + 2)
 #define TRMS_TO_OFST    0x00
 #define TRMS_CMD_OFST   0x01
 #define TRMS_DATA_OFST  0x02

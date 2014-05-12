@@ -9,9 +9,9 @@ uint32_t* get_connections_table_address(void)
   return (uint32_t*)connections;
 }
 
-uint32_t* get_topology_table_address(void)
+const net_typedef* get_topology_table_address(void)
 {
-  return (uint32_t*)topology;
+  return topology;
 }
 
 conn_typedef get_connection(uint32_t index)

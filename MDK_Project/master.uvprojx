@@ -544,6 +544,11 @@
               <FileType>1</FileType>
               <FilePath>..\adc.c</FilePath>
             </File>
+            <File>
+              <FileName>periph.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\periph.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
