@@ -11,6 +11,13 @@
 
 typedef struct
 {
+  uint8_t device_count;
+  uint16_t wires_count;
+  uint8_t reserved;
+} sys_typedef;
+
+typedef struct
+{
   uint8_t out_addr;
   uint8_t out_number;
   uint8_t in_addr;
@@ -26,12 +33,15 @@ typedef struct
 // Tables addresses
 uint32_t* get_connections_table_address(void);
 const net_typedef* get_topology_table_address(void);
+const sys_typedef* get_sys_settings_address(void);
+
+// System settings
+uint16_t get_wires_count(void);
+uint8_t get_dev_count(void);
 
 // Connections
 conn_typedef get_connection(uint32_t index);
 
-// Topology items
-net_typedef get_topology(uint32_t index);
 void set_topology(net_typedef value, uint32_t index);
 
 #endif

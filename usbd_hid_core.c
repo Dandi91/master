@@ -237,9 +237,16 @@ __ALIGN_BEGIN static uint8_t HID_ReportDesc[HID_REPORT_DESC_SIZE] __ALIGN_END =
   0x95, WIRE_STRUCT_LENGTH,      //   REPORT_COUNT (4)
   0x09, 0x00,                    //   USAGE (Undefined)
   0xb2, 0x02, 0x01,              //   FEATURE (Data,Var,Abs,Buf)
-  
+
 /* 32 */
-  
+
+  0x85, REPORT_SYSTEM,           //   REPORT_ID (3)
+  0x95, SYSTEM_STRUCT_LENGTH,    //   REPORT_COUNT (4)
+  0x09, 0x00,                    //   USAGE (Undefined)
+  0xb2, 0x02, 0x01,              //   FEATURE (Data,Var,Abs,Buf)
+
+/* 41 */
+
   0xc0                           // END_COLLECTION
 };
 

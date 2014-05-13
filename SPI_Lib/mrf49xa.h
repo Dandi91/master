@@ -12,6 +12,7 @@ typedef uint16_t data_len_t;		// Type used for data length field in packets
 #define PROTO_BYTES_CNT 3				// Number of protocol bytes - addresses and commands
 #define SRVC_BYTES_CNT 4				// Number of service bytes - preambule and sync. word
 #define MAX_PACKET_LOAD 4096		// Max. number of bytes in packet's data field
+#define MAX_TRSM_CHAIN 140      // Max. length of transmitter chain
 
 // Cycle buffer item's types
 #define RFT_ITEM_CMD	0x0001		// Command item

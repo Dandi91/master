@@ -1,40 +1,24 @@
 #include "rft_handlers.h"
-#include "init.h"
 #include "flash_structures.h"
 #include "topology.h"
 #include "periph.h"
 
-// Number of samples
-#define TIME_PERIODS_COUNT 3
-// Multiplication constant (2048 / 2047.95)
-#define TIMER_SHIFTING_VALUE (float)1.000024414658561
-// Additional number of cycles for startup
-#define WARM_UP_TIME 10
-
 // Work packet
 uint8_t packet[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
-// In-going transmission
-uint8_t in_trans[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
-// Out-going transmission
-uint8_t out_trans[MAX_PACKET_LOAD + PROTO_BYTES_CNT];
-data_len_t packet_length;
-uint8_t dev_count;
-uint8_t is_topology_construct = 0;
-
-uint8_t current_transmission_from, current_transmission_to, is_transmit = 0;
-uint8_t transmt_count, transmt_index;
-uint8_t *curr_transmt_pos, *curr_pack_pos;
+data_len_t packet_len = 0;
+uint8_t is_topology_construct = 0, is_initialization = 0;
 
 const net_typedef *net;
+static uint8_t runs;
 
-void CopyBuffer(uint8_t *source, uint8_t *dest, uint32_t length)
+typedef enum
 {
-  uint32_t i;
+  RFT_ANS_OK = 0,
+  RFT_ANS_TIMEOUT,
+  RFT_ANS_WAIT
+} rft_ans_typedef;
 
-  i = 0;
-  while (i++ < length)
-    *dest++ = *source++;
-}
+rft_ans_typedef rft_answer;
 
 void EXTI15_10_IRQHandler(void)
 {
@@ -70,35 +54,6 @@ void MakePacket(uint8_t to, uint8_t from, uint8_t cmd)
   packet[PCKT_CMD_OFST] = cmd;
 }
 
-void GetOutputs(uint16_t *p, data_len_t *len)
-{
-  uint8_t i;
-
-  len = 0;
-  if (GetPeripheralParams().b.adc_enabled)
-  {
-    for (i = 0; i < 8; i++)
-      *p++ = ReadADC(i);
-    len += 16;
-  }
-  if (GetPeripheralParams().b.input_enabled)
-  {
-    *(uint32_t*)p = GetLogicInputs();
-    len += 4;
-  }
-}
-
-void SetOutputs(uint16_t *p)
-{
-  if (GetPeripheralParams().b.dac_enabled)
-  {
-    WriteDACs(p);
-    p += 16;
-  }
-  if (GetPeripheralParams().b.output_enabled)
-    SetLogicOutputs(*(uint32_t*)p);
-}
-
 uint8_t* MakeTransPacket(uint8_t *array, data_len_t len, uint8_t to, uint8_t cmd)
 {
   *(data_len_t*)array = len;
@@ -116,20 +71,49 @@ void SendProtoPacket(uint8_t to, uint8_t type)
 
 void SendPacket(uint8_t *array, data_len_t length)
 {
+  rft_answer = RFT_ANS_WAIT;
   SPI_RFT_Write_Packet(array,length);
   StartTimeoutTimer();
 }
 
+void DisTransPacket(uint8_t *packet)
+{
+  data_len_t sub_len;
+  uint8_t count, i;
+
+  count = packet[0];
+  packet++;
+  for (i = 0; i < count; i++)
+  {
+    sub_len = *(data_len_t*)packet;
+    packet += DATA_LENGTH;
+    if (packet[TRMS_CMD_OFST] == PACKET_TYPE_ANS)
+    {
+      SetInputsFor(packet[TRMS_TO_OFST],&packet[TRMS_DATA_OFST],sub_len);
+      packet += sub_len + TRMS_DATA_OFST;
+    }
+    else if (packet[TRMS_CMD_OFST] == PACKET_TYPE_TRSMT)
+    {
+      packet += TRMS_DATA_OFST;
+      DisTransPacket(packet);
+      packet += sub_len;
+    }
+  }
+}
+
 void DisassemblePacket(uint8_t *packet)
 {
-  
+  if (packet[PCKT_CMD_OFST] == PACKET_TYPE_ANS)
+    SetInputsFor(packet[PCKT_FROM_OFST],&packet[PCKT_DATA_OFST],packet_len - PROTO_BYTES_CNT);
+  else if (packet[PCKT_CMD_OFST] == PACKET_TYPE_TRSMT)
+    DisTransPacket(&packet[PCKT_DATA_OFST]);
 }
 
 uint8_t CheckTransmitter(uint8_t root_idx)
 {
   uint8_t i;
 
-  for (i = root_idx + 1; i < dev_count; i++)
+  for (i = root_idx + 1; i < get_dev_count(); i++)
   {
     if (net[i].from == net[root_idx].to)
       return 1;
@@ -146,14 +130,25 @@ data_len_t BuildRequest(uint8_t *packet, uint8_t target_idx)
   // Build request for itself
   sub_count = 1;                      // First sub-packet
   len = 1;                            // One byte for sub-packets count
-  p_len = (data_len_t*)&packet[1];    // Pointer to current sub-packet's data length
-  p = MakeTransPacket(&packet[1],0,net[target_idx].to,PACKET_TYPE_REQ);
-  sub_len = GetOutputsFor(net[target_idx].to,p);
-  *p_len = sub_len;                   // Write data length
+  if (is_initialization)
+  {
+    p = MakeTransPacket(&packet[1],0,net[target_idx].to,PACKET_TYPE_INIT);
+    sub_len = 0;
+  }
+  else
+  {
+    p_len = (data_len_t*)&packet[1];  // Pointer to current sub-packet's data length
+    p = MakeTransPacket(&packet[1],0,net[target_idx].to,PACKET_TYPE_REQ);
+    sub_len = GetOutputsFor(net[target_idx].to,p);
+    *p_len = sub_len;                 // Write data length
+  }
   p += sub_len;                       // Move pointer foward
   len += sub_len + TRMS_PROTO_CNT;    // Count result length
+  runs++;
+  if (runs > MAX_TRSM_CHAIN)
+    return len;
   // Build transmissions
-  for (i = target_idx + 1; i < dev_count; i++)
+  for (i = target_idx + 1; i < get_dev_count(); i++)
   {
     if (net[i].from == net[target_idx].to)
     {
@@ -171,10 +166,18 @@ data_len_t BuildRequest(uint8_t *packet, uint8_t target_idx)
       else
       {
         // If slave isn't a transmitter - make simple request packet
-        p_len = (data_len_t*)p;           // Pointer to current sub-packet's data length
-        p = MakeTransPacket(p,0,net[i].to,PACKET_TYPE_REQ);
-        sub_len = GetOutputsFor(net[i].to,p);
-        *p_len = sub_len;                 // Write data length
+        if (is_initialization)
+        {
+          sub_len = 0;
+          p = MakeTransPacket(p,0,net[i].to,PACKET_TYPE_INIT);
+        }
+        else
+        {
+          p_len = (data_len_t*)p;           // Pointer to current sub-packet's data length
+          p = MakeTransPacket(p,0,net[i].to,PACKET_TYPE_REQ);
+          sub_len = GetOutputsFor(net[i].to,p);
+          *p_len = sub_len;                 // Write data length
+        }
         p += sub_len;                     // Move pointer foward
         len += sub_len + TRMS_PROTO_CNT;  // Count result length
       }
@@ -184,12 +187,20 @@ data_len_t BuildRequest(uint8_t *packet, uint8_t target_idx)
   return len;
 }
 
+void InitSignal(void)
+{
+  is_initialization = 1;
+  SystemPoll();
+  is_initialization = 0;
+}
+
 void SystemPoll(void)
 {
   uint8_t i = 0;
   data_len_t len;
 
-  UpdateMasterPeripherals();
+  if (!is_initialization)
+    UpdateMasterPeripherals();
   net = get_topology_table_address();
   while (net[i].from == DEFAULT_MASTER_ADDRESS)
   {
@@ -200,82 +211,44 @@ void SystemPoll(void)
     {
       // If net[i] is a transmitter
       packet[PCKT_CMD_OFST] = PACKET_TYPE_TRSMT;
+      runs = 0;
       len = BuildRequest(&packet[PCKT_DATA_OFST],i);
     }
     else
     {
       // If net[i] is not a transmitter
-      packet[PCKT_CMD_OFST] = PACKET_TYPE_REQ;
-      len = GetOutputsFor(net[i].to,&packet[PCKT_DATA_OFST]);
+      if (is_initialization)
+      {
+        packet[PCKT_CMD_OFST] = PACKET_TYPE_INIT;
+        len = 0;
+      }
+      else
+      {
+        packet[PCKT_CMD_OFST] = PACKET_TYPE_REQ;
+        len = GetOutputsFor(net[i].to,&packet[PCKT_DATA_OFST]);
+      }
     }
     SendPacket(packet,len + PROTO_BYTES_CNT);
     // Wait for result
-    // while (1);
-    // Retrieve result from packet
-    DisassemblePacket(packet);
-  }
-}
-
-void HandlePacket(uint8_t *h_packet)
-{
-  data_len_t *temp;
-
-  switch (h_packet[TRMS_CMD_OFST])
-  {
-    case PACKET_TYPE_REQ:
+    while (rft_answer == RFT_ANS_WAIT);
+    if (rft_answer == RFT_ANS_OK)
     {
-      /* setting outputs */
-      SetOutputs((uint16_t*)(h_packet + TRMS_DATA_OFST));
-
-      /* getting outputs */
-      temp = (data_len_t*)curr_pack_pos;
-      curr_pack_pos = MakeTransPacket(curr_pack_pos,0,DEFAULT_MASTER_ADDRESS,PACKET_TYPE_ANS);
-      GetOutputs((uint16_t*)curr_pack_pos,temp);
-
-      curr_pack_pos += *temp;
-      break;
+      // Retrieve result from packet
+      if (!is_initialization)
+        DisassemblePacket(packet);
     }
+    else if (rft_answer == RFT_ANS_TIMEOUT)
+    {
+      // Direct-connected slave doesn't respond
+    }
+    i++;
   }
-}
-
-void TransmitNextFromBuffer(void)
-{
-  uint32_t curr_length;
-
-  // Check with ourselves
-  if (*(curr_transmt_pos + DATA_LENGTH + TRMS_TO_OFST) == DEFAULT_MASTER_ADDRESS)
-  {
-    // Recipient is we!
-    curr_transmt_pos += DATA_LENGTH;
-    HandlePacket(curr_transmt_pos);
-    return;
-  }
-
-  // Length
-  curr_length = *(data_len_t*)curr_transmt_pos;
-  curr_transmt_pos += DATA_LENGTH;
-
-  // Protocol fields
-  current_transmission_to = *(curr_transmt_pos + TRMS_TO_OFST);
-  MakePacket(current_transmission_to,DEFAULT_MASTER_ADDRESS,
-             *(curr_transmt_pos + TRMS_CMD_OFST));
-
-  // Data
-  curr_transmt_pos += TRMS_DATA_OFST;
-  CopyBuffer(curr_transmt_pos,&packet[PCKT_DATA_OFST],curr_length);
-  curr_transmt_pos += curr_length;
-
-  // Send
-  SPI_RFT_Write_Packet(packet,curr_length + PROTO_BYTES_CNT);
-
-  // Start timeout timer
-  StartTimeoutTimer();
 }
 
 void InitTopology(void)
 {
   is_topology_construct = 1;
-  RebuildTopology(dev_count,packet);
+  RebuildTopology(get_dev_count(),packet);
   is_topology_construct = 0;
 }
 
@@ -285,56 +258,17 @@ void TIM7_IRQHandler(void)
   {
     TIM_ClearFlag(TIM7,TIM_FLAG_Update);
     StopTimeoutTimer();
-    if (is_transmit)
-    {
-      curr_pack_pos = MakeTransPacket(curr_pack_pos,0,current_transmission_to,PACKET_TYPE_TIMEOUT);
-      TransmitNextFromBuffer();
-    }
+    rft_answer = RFT_ANS_TIMEOUT;
     if (is_topology_construct)
-    {
       SetTopologyAnswer(TOP_ANS_TIMEOUT);
-    }
   }
 }
 
 void RX_Complete(void)
 {
-  uint8_t sender;
-  uint16_t curr_length;
-
   if (packet[PCKT_TO_OFST] == DEFAULT_MASTER_ADDRESS)
   {
-    sender = packet[PCKT_FROM_OFST];
-    if (is_transmit)
-    {
-      // Transmission in progress
-      // All received packets should be packed to output packet
-      curr_length = packet_length - PROTO_BYTES_CNT;
-      curr_pack_pos = MakeTransPacket(curr_pack_pos,curr_length,sender,packet[PCKT_CMD_OFST]);
-      CopyBuffer(&packet[PCKT_DATA_OFST],curr_pack_pos,curr_length);
-      curr_pack_pos += curr_length;
-      // Check next packet
-      transmt_index++;
-      if (transmt_index < transmt_count)
-      {
-        // Still have something to transmit
-        TransmitNextFromBuffer();
-      }
-      else
-      {
-        // Nothing to transmit; send packet to main sender
-        out_trans[PCKT_TO_OFST] = current_transmission_from;
-        out_trans[PCKT_FROM_OFST] = DEFAULT_MASTER_ADDRESS;
-        out_trans[PCKT_CMD_OFST] = PACKET_TYPE_TRSMT;
-        out_trans[PCKT_DATA_OFST] = transmt_count;
-
-        curr_length = curr_pack_pos - out_trans;
-        SPI_RFT_Write_Packet(out_trans,curr_length);
-
-        is_transmit = 0;
-      }
-      return;
-    }
+    rft_answer = RFT_ANS_OK;
     switch (packet[PCKT_CMD_OFST])
     {
       case PACKET_TYPE_ECHO:
@@ -343,38 +277,11 @@ void RX_Complete(void)
           SetTopologyAnswer(TOP_ANS_OK);
         break;
       }
-      case PACKET_TYPE_REQ:  // output data
-      {
-        SetOutputs((uint16_t*)(packet + PCKT_DATA_OFST));
-        GetOutputs((uint16_t*)(packet + PCKT_DATA_OFST),&packet_length);
-
-        MakePacket(sender,DEFAULT_MASTER_ADDRESS,PACKET_TYPE_ANS);
-        SPI_RFT_Write_Packet(packet,packet_length + PROTO_BYTES_CNT);
-        break;
-      }
       case PACKET_TYPE_TRSMT:    // Incapsulated packets
       {
         if (is_topology_construct)
-        {
           // Returned echo from a transmitter
           SetTopologyAnswer(TOP_ANS_OK);
-          break;
-        }
-        if (!is_transmit)    // First request
-        {
-          current_transmission_from = sender;
-          is_transmit = 1;
-          // Copy to independent buffer
-          CopyBuffer(packet,in_trans,packet_length);
-
-          // Start first transmission
-          transmt_count = in_trans[PCKT_DATA_OFST];
-          transmt_index = 0;
-          curr_pack_pos = &out_trans[PCKT_DATA_OFST + 1];
-          curr_transmt_pos = &in_trans[PCKT_DATA_OFST + 1];
-
-          TransmitNextFromBuffer();
-        }
         break;
       }
     }
@@ -384,7 +291,7 @@ void RX_Complete(void)
 uint8_t* RX_Begin(data_len_t length)
 {
   StopTimeoutTimer();
-  packet_length = length;
+  packet_len = length;
   if ((length < PROTO_BYTES_CNT) || (length > sizeof(packet)))
     return NULL;
   else

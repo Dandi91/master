@@ -45,4 +45,9 @@ void TX_Complete(void);
 void RX_Complete(void);
 uint8_t* RX_Begin(data_len_t length);
 
+// Protocol functions
+void InitTopology(void);
+void InitSignal(void);
+void SystemPoll(void);
+
 #endif

@@ -57,14 +57,18 @@ void EP0_Data_Ready(void)
       current_wire += 4;
       break;
     }
+    case REPORT_SYSTEM:
+    {
+      FLASH_ProgramWord((uint32_t)get_sys_settings_address(),*(uint32_t*)&buffer[1]);
+      break;
+    }
   }
   buffer[0] = 0;
 }
 
 void Process_USB_Set_Request(USB_SETUP_REQ *req)
 {
-  if (((req->wValue & 0xFF) == REPORT_MEMORY) ||
-      ((req->wValue & 0xFF) == REPORT_WIRES))
+  if (req->wLength < BCKP_STRUCT_LENGTH + 2)
     USBD_CtlPrepareRx(&USB_OTG_dev,buffer,req->wLength);
 }
 

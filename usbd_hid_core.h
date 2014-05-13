@@ -47,7 +47,7 @@
   */
 #define USB_HID_CONFIG_DESC_SIZ       34
 #define USB_HID_DESC_SIZ              9
-#define HID_REPORT_DESC_SIZE          33
+#define HID_REPORT_DESC_SIZE          42
 
 #define HID_DESCRIPTOR_TYPE           0x21
 #define HID_REPORT_DESC               0x22
@@ -64,9 +64,11 @@
 #define REPORT_BASE                   0x01
 #define REPORT_MEMORY                 REPORT_BASE
 #define REPORT_WIRES                  (REPORT_BASE + 0x01)
+#define REPORT_SYSTEM                 (REPORT_BASE + 0x02)
 
 #define BCKP_STRUCT_LENGTH            17
 #define WIRE_STRUCT_LENGTH            4
+#define SYSTEM_STRUCT_LENGTH          4
 /**
   * @}
   */

@@ -1,5 +1,6 @@
 #include "stm32f37x.h"                  // Keil::Device:Startup
 #include "init.h"
+#include "rft_handlers.h"
 
 uint8_t is_config = 0;
 
@@ -29,5 +30,14 @@ int main(void)
 
   Initialization(is_config);
 
-  while (1);
+  if (is_config)
+    while (1);  // Configuration through USB interrupts
+
+  /* Actual work */
+  InitTopology();   // Net topology
+  InitSignal();     // Initialization signal
+  while (1)
+  {
+    SystemPoll();   // Main cycle
+  }
 }
