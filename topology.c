@@ -75,7 +75,7 @@ uint8_t* GetPathTo(net_typedef *net, uint8_t *packet, uint16_t needed_idx, uint1
   chain[0] = needed_idx;
   count = 1;
   i = needed_idx;
-  while ((i > 0) || (from != DEFAULT_MASTER_ADDRESS))
+  while ((i > 0) && (from != DEFAULT_MASTER_ADDRESS))
   {
     // Go from needed element up
     i--;
@@ -187,7 +187,7 @@ void RebuildTopology(uint8_t dev_count, uint8_t *packet)
       }
       case TOP_ANS_TIMEOUT:
       {
-        // Oh... Something gone wrong!
+        // Oh... Something went wrong!
         // Slave is not responding now
         break;
       }

@@ -142,7 +142,7 @@ data_len_t BuildRequest(uint8_t *packet, uint8_t target_idx)
     sub_len = GetOutputsFor(net[target_idx].to,p);
     *p_len = sub_len;                 // Write data length
   }
-  p += sub_len;                       // Move pointer foward
+  p += sub_len;                       // Move pointer forward
   len += sub_len + TRMS_PROTO_CNT;    // Count result length
   runs++;
   if (runs > MAX_TRSM_CHAIN)

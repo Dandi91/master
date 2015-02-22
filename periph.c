@@ -99,7 +99,7 @@ void SetInputsFor(uint8_t address, uint8_t *array, data_len_t length)
   else if (length >= 16)
     for (i = 0; i < 8; i++)
       system_state[address].adc[i] = ((uint16_t*)array)[i];
-  else if (length == 20)
+  if (length == 20)
     system_state[address].inputs = *(uint32_t*)(array + 16);
 }
 
