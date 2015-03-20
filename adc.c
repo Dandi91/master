@@ -15,6 +15,8 @@ void SDADC1_IRQHandler(void)
   if (SDADC_GetITStatus(SDADC1,SDADC_IT_JEOC) == SET)
   {
     result = SDADC_GetInjectedConversionValue(SDADC1,&channel);
+    channel = channel >> 16;  // Taking the higher word, which contains channel's index
+    channel &= 0x0000000F;
     channels[channel] = result;
   }
 }
